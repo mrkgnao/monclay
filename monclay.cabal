@@ -1,0 +1,50 @@
+name:                monclay
+version:             0.1.0.0
+synopsis:            Initial project template from stack
+description:         Please see README.md
+homepage:            https://github.com/mrkgnao/monclay#readme
+license:             BSD3
+license-file:        LICENSE
+author:              Soham Chowdhury
+maintainer:          chow.soham@gmail.com
+copyright:           (c) 2016 mrkgnao
+category:            None
+build-type:          Simple
+-- extra-source-files:
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Lib
+                     , World
+                     , Cell
+                     , Player
+  build-depends:       base >= 4.7 && < 5
+                     , gloss
+                     , vector
+                     , random
+  default-language:    Haskell2010
+
+executable monclay-exe
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  build-depends:       base
+                     , monclay
+                     , gloss
+                     , vector
+                     , random
+  default-language:    Haskell2010
+
+test-suite monclay-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Spec.hs
+  build-depends:       base
+                     , monclay
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/mrkgnao/monclay
