@@ -1,13 +1,14 @@
 module Cell where
 
-import Player
-import Graphics.Gloss
+import           Graphics.Gloss
+import           Player
 
 data Cell
     = Unowned
     | Owned { player :: Player}
     | OnTrail { player :: Player}
-    deriving (Eq)
+    | PlayerOn { player :: Player}
+    deriving (Eq,Show)
 
 -- | A default cell
 mkCell :: Cell
@@ -36,4 +37,4 @@ pictureOfCell cellSize posX posY cell =
     coloredSquare = Color c (cellShape cellSize posX posY)
     c = case cell of
           Owned{player = player} -> cellColor player
-          Unowned -> greyN 0.8
+          Unowned                -> greyN 0.8

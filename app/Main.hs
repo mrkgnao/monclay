@@ -6,10 +6,10 @@ import Graphics.Gloss
 
 main :: IO ()
 main = do
-    let width = 80
-    let height = 60
-    let state = mkState (width, height)
-    simulate
+    let width = 150
+    let height = 150
+    let state = mkStateWithPlayer (width, height)
+    play
         (InWindow
              "John Conway's Game of Life"
              (windowSize $ settings state)
@@ -18,4 +18,5 @@ main = do
         10
         state
         drawGame
+        eventHandler
         simulateGame
