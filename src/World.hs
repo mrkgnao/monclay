@@ -1,6 +1,10 @@
 module World where
 
 import           Cell
+import           Data.Map                           (Map)
+import qualified Data.Map                           as M
+import           Data.Maybe                         (catMaybes, fromMaybe,
+                                                     isJust, mapMaybe)
 import qualified Data.Vector                        as Vec
 import           Debug.Trace                        (trace)
 import           Graphics.Gloss
@@ -44,10 +48,11 @@ data GameState = GameState
     , settings       :: AnimationSettings
     , simulationData :: SimulationState
     , players        :: Vec Player
+    , neighborhoods  :: M.Map Coord [(Direction, Cell)]
     }
 
-mkState :: (Int, Int) -> GameState
-mkState (width,height) =
+mkState :: (Int, Int) -> Float -> Float -> Int -> Int -> GameState
+mkState (width,height) elapsedTime simulationPeriod cellSize cellSpace =
     let cells = replicate (width * height) Unowned
         world =
             World
@@ -65,38 +70,56 @@ mkState (width,height) =
             { simulationPeriod = 0.2
             , cellSize = 3
             , cellSpace = 1
-            -- | Notice that this is a part of `settings` defined in terms of itself!
-            -- | It is times like these that make me love Haskell <3
-            , windowSize = windowSizeFrom world settings
+            ,
+              -- | Notice that this is a part of `settings` defined in terms of itself!
+              -- | It is times like these that make me love Haskell <3
+              windowSize = windowSizeFrom world settings
             }
     in GameState
        { world = world
        , simulationData = simData
        , settings = settings
        , players = Vec.empty
+       , neighborhoods = computeAllNeighborhoods world
        }
 
+modifyState :: GameState -> (World -> World) -> GameState
+modifyState state@GameState{world = world} f =
+    state
+    { world = world'
+    , neighborhoods = computeAllNeighborhoods world'
+    }
+  where
+    world' = f world
+
+computeAllNeighborhoods :: World -> M.Map Coord [(Direction, Cell)]
+computeAllNeighborhoods world =
+    M.fromList $
+    map
+        (\c ->
+              (c, computeNeighborhood world c))
+        [ (x, y)
+        | x <- [0 .. width world - 1]
+        , y <- [0 .. height world - 1] ]
+
+mkDefaultState :: (Int, Int) -> GameState
+mkDefaultState dim = mkState dim 0 0.2 3 1
+
 mkStateWithPlayer dim@(width,height) =
-    let state = mkState dim
-        w = world state
-        w' =
-            setCell
-                w
-                (20, 20)
-                (Owned
-                 { player = dude
-                 })
-        w'' =
-            setCell
-                w'
-                (60, 60)
-                (Owned
-                 { player = nana
-                 })
-    in state
-       { players = Vec.fromList [dude, nana]
-       , world = w''
-       }
+    let state = mkDefaultState dim
+        f :: World -> World
+        f = addDude . addNana
+          where
+            addPlayer coord player world =
+                setCell
+                    world
+                    coord
+                    (Owned
+                     { player = player
+                     })
+            addDude = addPlayer (20, 20) dude
+            addNana = addPlayer (60, 60) nana
+    in modifyState state f
   where
     cellColor = makeColorI 0 76 153 255
     cellColor' = makeColorI 204 0 102 255
@@ -144,33 +167,53 @@ getCell world coord@(x,y)
   | otherwise = cells world Vec.! indexOfCoord world coord
 
 -- | Get the neighbourhood of cells around this coordinate.
-getNeighbourhood
-    :: World -> Coord -> [(Direction, Cell)]
-getNeighbourhood world (ix,iy) =
-    let indexes = [(ix + 1, iy), (ix - 1, iy), (ix, iy + 1), (ix, iy - 1)]
-        dirs = [R, L, U, D]
-    in zipWith (,) dirs $ map (getCell world) indexes
+getNeighborhood
+    :: GameState -> Coord -> [(Direction, Cell)]
+getNeighborhood state coord =
+    fromMaybe [] (M.lookup coord (neighborhoods state))
+
+computeNeighborhood :: World -> Coord -> [(Direction, Cell)]
+computeNeighborhood world (ix,iy)
+  | trace (show (ix, iy)) False = undefined
+  | otherwise =
+      let indexes = [(ix + 1, iy), (ix - 1, iy), (ix, iy + 1), (ix, iy - 1)]
+          dirs = [R, L, U, D]
+      in zipWith (,) dirs $ map (getCell world) indexes
+
+updateNeighborhood :: GameState -> Coord -> GameState
+updateNeighborhood state@GameState{neighborhoods = nbhd,world = world} coord =
+    state
+    { neighborhoods = M.insert coord (computeNeighborhood world coord) nbhd
+    }
 
 -- | Compute the next cell state depending on its neighbours.
 stepCell
-    :: Cell -> [(Direction, Cell)] -> Cell
-stepCell cell neighbours =
+    :: Cell
+    -> [(Direction, Cell)]
+    -> Coord
+    -> World
+    -> (Cell, Maybe (Coord, [(Direction, Cell)]))
+stepCell cell neighbours coord world =
     case cell of
-        PlayerOn{player = player} ->
-            Owned
-            { player = player
-            }
+        PlayerOn{player = player} -> (cell', Nothing)
+            where cell' =
+                      Owned
+                      { player = player
+                      }
         otherwise ->
             let cellNeighbours = filter ((/= Unowned) . snd) neighbours
             in case cellNeighbours of
-                   [] -> cell
+                   [] -> (cell, Nothing)
                    ((d,c):xs) ->
                        case directionMatchPlayers of
-                           [] -> cell
-                           (y:ys) ->
-                               Owned
-                               { player = player c
-                               }
+                           [] -> (cell, Nothing)
+                           (y:ys) -> (cell', Just (coord, neighbours'))
+                               where cell' =
+                                         Owned
+                                         { player = player c
+                                         }
+                                     neighbours' =
+                                         computeNeighborhood world coord
                        where directionMatchPlayers =
                                  filter
                                      (\(d',c') ->
@@ -179,28 +222,35 @@ stepCell cell neighbours =
 
 -- | Compute the next state of the cell at this index in the world.
 stepIndex
-    :: World -> Int -> Cell -> Cell
-stepIndex world index cell =
+    :: GameState -> Int -> Cell -> (Cell, Maybe (Coord, [(Direction, Cell)]))
+stepIndex state@GameState{world = world} index cell =
     let coord = coordOfIndex world index
-        neigh = getNeighbourhood world coord
-    in stepCell cell neigh
+        neigh = getNeighborhood state coord
+    in stepCell cell neigh coord world
 
 stepState :: Float -> GameState -> GameState
-stepState time state@(GameState{settings = settings,simulationData = simData,world = world})
+stepState time state@(GameState{settings = settings,simulationData = simData,world = world,neighborhoods = nbhds})
   | trace (show $ worldAge simData) False = undefined
   | elapsedTime simData >= simulationPeriod settings =
-      let world' =
+      let delta = Vec.imap (stepIndex state) (cells world)
+          world' =
               world
-              { cells = Vec.imap (stepIndex world) (cells world)
+              { cells = Vec.map fst delta
               }
           simData' =
               simData
               { elapsedTime = 0
               , worldAge = (worldAge simData) + 1
               }
+          nbhdDelta :: [(Coord, [(Direction, Cell)])]
+          nbhdDelta = catMaybes $ map snd (Vec.toList delta)
+          nbhds'
+            | trace (show nbhdDelta) False = undefined
+            | otherwise = M.union (M.fromList (nbhdDelta)) nbhds
       in state
          { world = world'
          , simulationData = simData'
+         , neighborhoods = nbhds'
          }
   | otherwise =
       let simData' =
@@ -212,16 +262,13 @@ stepState time state@(GameState{settings = settings,simulationData = simData,wor
          }
 
 eventHandler :: Event -> GameState -> GameState
-
 eventHandler (EventKey (Char 'r') _ _ _) state =
     mkStateWithPlayer (worldWidth, worldHeight)
   where
     w = world state
     worldWidth = width w
     worldHeight = height w
-
 eventHandler (EventKey (Char 'q') _ _ _) state = error "user-initiated quit"
-
 eventHandler evt state = state
 
 -- Uninteresting utilities follow

@@ -23,6 +23,7 @@ library
                      , gloss
                      , vector
                      , random
+                     , containers
   default-language:    Haskell2010
 
 executable monclay-exe
@@ -34,6 +35,7 @@ executable monclay-exe
                      , gloss
                      , vector
                      , random
+                     , containers
   default-language:    Haskell2010
 
 test-suite monclay-test
